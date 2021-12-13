@@ -99,6 +99,9 @@ def run(connection_params, table, data_path):
     test_query(cursor, table)
     test_index_size(cursor, table)
 
+    # cleanup
+    drop_table(cursor, table)
+
 def main():
     args = parse_args()
 
