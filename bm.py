@@ -18,7 +18,8 @@ def parse_args():
     parser.add_argument('--config', required=True, help='Config')
     parser.add_argument('--data', required=True, help='Data file')
     parser.add_argument('--table', default=TableNameDefault, help="Table name")
-    parser.add_argument('--times', default=TimesDefault, help='# of times to run CREATE INDEX/SELECT queries')
+    parser.add_argument('--times', type=int, default=TimesDefault, help='# of times to run CREATE INDEX/SELECT queries')
+    parser.add_argument('--verbose', action='store_true', default=False, help='Print log messages')
     return parser.parse_args()
 
 def check_config(config):
@@ -83,38 +84,55 @@ def test_index_size(cursor, name):
     cursor.execute(sql.SQL(query), (name,))
     return cursor.fetchone()[0]
 
-def run(connection_params, table, data_path, times):
+def run(connection_params, table, data_path, times, verbose):
     # Connect
+    if verbose: print('Connecting')
     connection = connect(connection_params)
     cursor = connection.cursor()
     # Drop and re-create data table
+    if verbose: print('Dropping data table')
     drop_table(cursor, table)
     #create_table(cursor, table)
     # Import data
+    if verbose: print('Importing data')
     run_script(cursor, data_path)
     # Close connection
     connection.close()
+    if verbose: print('Connection closed')
 
     # Re-connect
+    if verbose: print('Re-connecting')
     connection = connect(connection_params)
     cursor = connection.cursor()
     index = '{}_idx'.format(table)
 
     # Run tests
+    if verbose: print('Running CREATE INDEX/SELECT {} time(s)'.format(times))
     create_index_time_ms = []
     select_time_ms = []
-    for i in range(0, times):
+    for i in range(1, times + 1):
         drop_index(cursor, index)
         # Create index
+        if verbose: print('  #{} CREATE INDEX: '.format(i), end='')
         time_ms = test_create_index(cursor, table, index)
         create_index_time_ms.append(time_ms)
+        if verbose: print('{} ms'.format(time_ms))
         # Select
+        if verbose: print('  #{}: SELECT: '.format(i), end='')
         time_ms = test_query(cursor, table)
         select_time_ms.append(time_ms)
+        if verbose: print('{} ms'.format(time_ms))
     # Index size
+    if verbose: print('Getting index size: ', end='')
     index_size = test_index_size(cursor, table)
+    if verbose: print(index_size)
+
+    # cleanup
+    if verbose: print('Dropping data table')
+    drop_table(cursor, table)
 
     # Print results
+    if verbose: print()
     print("CREATE INDEX time, avg: {} ms, median: {} ms".format(
         mean(create_index_time_ms),
         median(create_index_time_ms)))
@@ -123,16 +141,13 @@ def run(connection_params, table, data_path, times):
         median(select_time_ms)))
     print("Index size: {}".format(index_size))
 
-    # cleanup
-    drop_table(cursor, table)
-
 def main():
     args = parse_args()
 
     try:
         config = load_config(args.config)
         for connection_params in config['connections']:
-            run(connection_params, args.table, args.data, args.times)
+            run(connection_params, args.table, args.data, max(1, args.times), args.verbose)
             print()
 
     except BaseException as e:
